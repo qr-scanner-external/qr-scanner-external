@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>GT PPE — QR Scanner</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  :root {
+    --c-teal: #00d4aa;
+    --c-red:  #ff4757;
+    --bg-base: #0f1923;
+    --bg-card: #1a2635;
+    --text-primary: #e8f0fe;
+    --text-secondary: #8da2b5;
+    --border: rgba(255,255,255,.08);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    background: var(--bg-base);
+    color: var(--text-primary);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 1.25rem;
+  }
+  h1 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: .25rem;
+    text-align: center;
+  }
+  .sub {
+    font-size: .8rem;
+    color: var(--text-secondary);
+    margin-bottom: 1.25rem;
+    text-align: center;
+  }
+  #qr-reader {
+    width: 100%;
+    max-width: 360px;
+    border-radius: 14px;
+    overflow: hidden;
+    background: #000;
+    border: 1px solid var(--border);
+  }
+  #status {
+    margin-top: 1rem;
+    font-size: .85rem;
+    color: var(--text-secondary);
+    text-align: center;
+    min-height: 1.2em;
+  }
+  #error-banner {
+    display: none;
+    margin-top: 1rem;
+    padding: .75rem 1rem;
+    background: rgba(255,71,87,.12);
+    border: 1px solid var(--c-red);
+    border-radius: 10px;
+    color: var(--c-red);
+    font-size: .85rem;
+    text-align: center;
+    max-width: 360px;
+    width: 100%;
+  }
+  #success-banner {
+    display: none;
+    margin-top: 1rem;
+    padding: 1.25rem;
+    background: rgba(0,212,170,.12);
+    border: 1px solid var(--c-teal);
+    border-radius: 14px;
+    color: var(--c-teal);
+    text-align: center;
+    max-width: 360px;
+    width: 100%;
+  }
+  #success-banner .emp-id {
+    font-size: 1.5rem;
+    font-weight: 700;
+    font-family: monospace;
+    margin: .5rem 0;
+    color: var(--text-primary);
+  }
+  .btn {
+    display: inline-block;
+    margin-top: 1.25rem;
+    padding: .75rem 1.75rem;
+    background: var(--c-teal);
+    color: #0f1923;
+    border: none;
+    border-radius: 10px;
+    font-size: .9rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    width: 100%;
+    max-width: 360px;
+    text-align: center;
+  }
+  .btn-secondary {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    margin-top: .6rem;
+  }
+  .manual-entry {
+    margin-top: 1.5rem;
+    width: 100%;
+    max-width: 360px;
+    text-align: center;
+  }
+  .manual-entry input {
+    width: 100%;
+    padding: .65rem .875rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-size: .9rem;
+    margin-top: .5rem;
+  }
+  .divider {
+    width: 100%;
+    max-width: 360px;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: .78rem;
+    margin: 1.25rem 0 .5rem;
+    position: relative;
+  }
+  .divider::before, .divider::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: 35%;
+    height: 1px;
+    background: var(--border);
+  }
+  .divider::before { left: 0; }
+  .divider::after  { right: 0; }
+</style>
+</head>
+<body>
+
+<h1>GT PPE — Scan Employee QR</h1>
+<p class="sub">Point the camera at the employee's QR code (Employee ID)</p>
+
+<div id="qr-reader"></div>
+<p id="status">Starting camera…</p>
+<div id="error-banner"></div>
+
+<div id="success-banner">
+  <div>Scanned Employee ID:</div>
+  <div class="emp-id" id="scanned-id"></div>
+  <a href="#" class="btn" id="return-btn">Return to PPE System</a>
+</div>
+
+<div class="divider">or enter manually</div>
+<div class="manual-entry">
+  <input type="text" id="manual-input" placeholder="e.g. C300 or L336"
+         autocomplete="off" autocapitalize="characters">
+  <button class="btn btn-secondary" id="manual-btn" style="cursor:pointer">
+    Use this Employee ID
+  </button>
+</div>
+
+<script>
+'use strict';
+
+// ── Read the return URL from query string ──────────────────────
+// The PPE app opens this page as:
+//   scanner.html?return=https://script.google.com/.../exec
+const params   = new URLSearchParams(window.location.search);
+const returnUrl = params.get('return') || '';
+
+console.log('[SCANNER] Return URL:', returnUrl || '(none provided)');
+
+const statusEl   = document.getElementById('status');
+const errorEl    = document.getElementById('error-banner');
+const successEl  = document.getElementById('success-banner');
+const scannedIdEl= document.getElementById('scanned-id');
+const returnBtn  = document.getElementById('return-btn');
+const readerEl   = document.getElementById('qr-reader');
+const manualInput= document.getElementById('manual-input');
+const manualBtn  = document.getElementById('manual-btn');
+
+let scanner = null;
+
+// ── Build the redirect URL back to the PPE app ──────────────────
+// Appends ?scan=EMPLOYEE_ID to the return URL.
+// If the return URL already has query params, uses & instead of ?.
+function buildReturnUrl(empId) {
+  if (!returnUrl) return '';
+  const sep = returnUrl.includes('?') ? '&' : '?';
+  return `${returnUrl}${sep}scan=${encodeURIComponent(empId)}`;
+}
+
+// ── Handle a successful scan or manual entry ────────────────────
+function handleEmployeeId(rawValue) {
+  // QR value should be the Employee ID only (e.g. C300, L336)
+  const empId = String(rawValue || '').trim().toUpperCase();
+
+  console.log('[SCANNER] Employee ID captured:', empId);
+
+  if (!empId) {
+    showError('Empty value scanned. Please try again or enter manually.');
+    return;
+  }
+
+  // Basic sanity check — Employee IDs are short alphanumeric codes
+  if (empId.length > 30 || !/^[A-Z0-9\-_]+$/i.test(empId)) {
+    showError(`Scanned value "${empId}" does not look like an Employee ID. ` +
+               `Try again or enter manually.`);
+    return;
+  }
+
+  stopScanner();
+
+  if (!returnUrl) {
+    // No return URL provided — just show the result
+    statusEl.textContent = '';
+    successEl.style.display = 'block';
+    scannedIdEl.textContent = empId;
+    returnBtn.style.display = 'none';
+    return;
+  }
+
+  const target = buildReturnUrl(empId);
+  console.log('[SCANNER] Redirecting to:', target);
+
+  statusEl.textContent = '';
+  successEl.style.display = 'block';
+  scannedIdEl.textContent = empId;
+  returnBtn.href = target;
+
+  // Auto-redirect after a brief pause so the user sees what was scanned
+  setTimeout(() => { window.location.href = target; }, 900);
+}
+
+function showError(msg) {
+  console.error('[SCANNER] Error:', msg);
+  errorEl.textContent = msg;
+  errorEl.style.display = 'block';
+  statusEl.textContent = '';
+}
+
+async function stopScanner() {
+  if (scanner) {
+    try { await scanner.stop();  } catch(e) {}
+    try { await scanner.clear(); } catch(e) {}
+    scanner = null;
+  }
+  readerEl.innerHTML = '';
+}
+
+// ── Start the camera scanner ─────────────────────────────────────
+async function startScanner() {
+  console.log('[SCANNER] User agent:', navigator.userAgent);
+  console.log('[SCANNER] Protocol:', location.protocol);
+  console.log('[SCANNER] In iframe:', window.self !== window.top);
+
+  if (typeof Html5Qrcode === 'undefined') {
+    showError('QR scanner library failed to load. Check your internet connection ' +
+               'or use manual entry below.');
+    return;
+  }
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showError('Camera not supported in this browser. Use manual entry below.');
+    return;
+  }
+
+  // Enumerate cameras
+  let cameraCount = -1;
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    cameraCount = devices.filter(d => d.kind === 'videoinput').length;
+    console.log('[SCANNER] Camera devices found:', cameraCount);
+  } catch(e) {
+    console.log('[SCANNER] enumerateDevices failed:', e.name, e.message);
+  }
+  if (cameraCount === 0) {
+    showError('No camera found on this device. Use manual entry below.');
+    return;
+  }
+
+  // Try getUserMedia directly first for clear diagnostics
+  try {
+    console.log('[SCANNER] Requesting camera permission…');
+    const testStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' }
+    });
+    console.log('[SCANNER] Camera permission granted');
+    testStream.getTracks().forEach(t => t.stop());
+  } catch (err) {
+    console.error('[SCANNER] getUserMedia failed:', err.name, err.message);
+    let msg = `Camera error (${err.name}). Use manual entry below.`;
+    switch (err.name) {
+      case 'NotAllowedError':
+      case 'PermissionDeniedError':
+        msg = 'Camera permission denied. Tap "Allow" when your browser prompts, ' +
+              'then reload this page. Or use manual entry below.';
+        break;
+      case 'NotFoundError':
+        msg = 'No camera found on this device. Use manual entry below.';
+        break;
+      case 'NotReadableError':
+        msg = 'Camera is in use by another app. Close other apps and reload.';
+        break;
+      case 'SecurityError':
+        msg = 'Camera requires HTTPS. Use manual entry below.';
+        break;
+    }
+    showError(msg);
+    return;
+  }
+
+  // Start the actual scanner
+  try {
+    scanner = new Html5Qrcode('qr-reader', { verbose: false });
+    const config = {
+      fps: 10,
+      qrbox: { width: 250, height: 250 },
+      aspectRatio: 1.0,
+      rememberLastUsedCamera: true,
+      supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA],
+    };
+
+    await scanner.start(
+      { facingMode: 'environment' },
+      config,
+      (decodedText) => {
+        console.log('[SCANNER] QR detected:', decodedText);
+        handleEmployeeId(decodedText);
+      },
+      () => { /* fires every frame with no QR — not an error */ }
+    );
+
+    statusEl.textContent = 'Point camera at QR code…';
+    console.log('[SCANNER] Scanner started successfully');
+
+  } catch (err) {
+    console.error('[SCANNER] html5-qrcode start failed:', err.name, err.message);
+    showError(`Scanner could not start (${err.name || 'error'}). Use manual entry below.`);
+  }
+}
+
+// ── Manual entry handler ──────────────────────────────────────────
+manualBtn.addEventListener('click', () => {
+  const val = manualInput.value.trim();
+  if (!val) {
+    manualInput.focus();
+    return;
+  }
+  handleEmployeeId(val);
+});
+manualInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') manualBtn.click();
+});
+
+// ── Boot ────────────────────────────────────────────────────────
+startScanner();
+</script>
+</body>
+</html>
